@@ -33,7 +33,7 @@ do
 
     echo "Getting Wazuh managers IPs to the agents"
     manager_ip="$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' `docker ps | awk '{print $NF}' | grep  $suite | grep manager`)"
-    print($manager_ip)
+    echo $manager_ip
     echo "getting a copy of ./manifests/site.pp.template"
     cp ./manifests/site.pp.template ./manifests/site.pp
 
