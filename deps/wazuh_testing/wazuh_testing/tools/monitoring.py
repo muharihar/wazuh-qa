@@ -1,9 +1,13 @@
 # Copyright (C) 2015-2020, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is free software; you can redistribute it and/or modify it under the terms of GPLv2
+import grp
 import os
+import pwd
 import socket
+import socketserver
 import sys
+import threading
 import time
 from struct import pack, unpack
 
@@ -345,3 +349,99 @@ class SocketMonitor:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class ForwardStreamHandler(socketserver.BaseRequestHandler):
+
+    def recvall(self, sock: socket.socket, size: int, mask: int):
+        buffer = bytearray()
+        while len(buffer) < size:
+            try:
+                data = sock.recv(size - len(buffer), mask)
+                if not data:
+                    break
+                buffer.extend(data)
+            except socket.timeout:
+                if self.server.mitm.event.is_set():
+                    break
+        return bytes(buffer)
+
+    def handle(self):
+        self.request.settimeout(1)
+        while not self.server.mitm.event.is_set():
+            header = self.recvall(self.request, 4, socket.MSG_WAITALL)
+            if not header:
+                break
+            size = unpack("<I", header)[0]
+            data = self.recvall(self.request, size, socket.MSG_WAITALL)
+            if not data:
+                break
+
+            print(f"Request: {data}", flush=True)
+
+            # Create a socket (SOCK_STREAM means a TCP socket)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as forwarded_sock:
+                # Connect to server and send data
+                forwarded_sock.connect(self.server.mitm.forwarded_socket_path)
+                forwarded_sock.sendall(pack("<I", len(data)) + data)
+
+                # Receive data from the server and shut down
+                size = unpack("<I", self.recvall(forwarded_sock, 4, socket.MSG_WAITALL))[0]
+                response = self.recvall(forwarded_sock, size, socket.MSG_WAITALL)
+                print(f"Response: {response}", flush=True)
+
+            self.request.sendall(pack("<I", len(response)) + response)
+
+
+class ForwardDatagramHandler(socketserver.BaseRequestHandler):
+
+    def handle(self):
+        data = self.request[0]
+        print(f"Recibo: {data}")
+        forwarded_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        print(f'Envío')
+        forwarded_sock.sendto(data, self.server.mitm.forwarded_socket_path)
+        print(f'Enviado')
+
+
+class StreamServer(socketserver.ThreadingUnixStreamServer):
+
+    def shutdown_request(self, request):
+        pass
+
+
+class ManInTheMiddle:
+
+    def __init__(self, socket_path, mode='TCP'):
+        self.listener_socket_path = socket_path
+        self.forwarded_socket_path = f'{socket_path}.original'
+        os.rename(self.listener_socket_path, self.forwarded_socket_path)
+        self.listener_class = StreamServer if mode == 'TCP' else socketserver.UnixDatagramServer
+        self.handler_class = ForwardStreamHandler if mode == 'TCP' else ForwardDatagramHandler
+        self.mode = mode
+        self.listener = None
+        self.thread = None
+        self.event = threading.Event()
+
+    def run(self, *args):
+        self.listener = self.listener_class(self.listener_socket_path, self.handler_class)
+        self.listener.mitm = self
+
+        # set proper socket permissions
+        uid = pwd.getpwnam('ossec').pw_uid
+        gid = grp.getgrnam('ossec').gr_gid
+        os.chown(self.listener_socket_path, uid, gid)
+        os.chmod(self.listener_socket_path, 0o660)
+
+        self.thread = threading.Thread(target=self.listener.serve_forever)
+        self.thread.start()
+
+    def start(self):
+        self.run()
+
+    def shutdown(self):
+        self.listener.shutdown()
+        self.listener.socket.close()
+        self.event.set()
+        os.remove(self.listener_socket_path)
+        os.rename(self.forwarded_socket_path, self.listener_socket_path)
