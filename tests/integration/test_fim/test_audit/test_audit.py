@@ -27,7 +27,7 @@ from wazuh_testing.tools.services import control_service
 
 # Marks
 
-pytestmark = [pytest.mark.linux, pytest.mark.tier(level=1)]
+pytestmark = [pytest.mark.linux, pytest.mark.tier(level=2)]
 
 # variables
 
