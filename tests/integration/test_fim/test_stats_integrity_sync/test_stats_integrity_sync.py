@@ -732,7 +732,6 @@ def test_initialize_stats_collector(fim_eps, sync_eps, files, directory, buffer,
                 merge_agent_df = pd.DataFrame(columns=["configuration", "agent_id", "n_attempts", "n_completions",
                                                        "start_time", "end_time", "total_time", "state", "complete(%)"])
                 for agent in agents_dict.values():
-                    print(agent['dataframe'])
                     merge_agent_df.loc[len(merge_agent_df)] = agent['dataframe']
                 merge_agent_df.to_csv(agent_filename, index=False)
             if not any([proc.is_alive() for proc in processes]):
