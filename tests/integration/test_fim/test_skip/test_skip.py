@@ -192,7 +192,7 @@ def test_skip_dev(modify_inode_mock, directory, tags_to_apply, get_configuration
     (os.path.join('/', 'nfs-mount-point'), {'skip_nfs'})
 ])
 @patch('wazuh_testing.fim.modify_file_inode')
-def test_skip_nfs(modify_inode_mock, directory, tags_to_apply, get_configuration, configure_environment, configure_nfs, restart_syscheckd,
+def test_skip_nfs(modify_inode_mock, directory, tags_to_apply, get_configuration, configure_environment, restart_syscheckd,
                   wait_for_initial_scan):
     """Check if syscheckd skips nfs directories when setting 'skip_nfs="yes"'.
 
